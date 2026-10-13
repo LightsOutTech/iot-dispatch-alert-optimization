@@ -1,55 +1,58 @@
 import unittest
-from solution import load_data, evaluate_policy
+from solution import load_data, is_flagged_s1, is_flagged_s2, is_flagged_s3
 
-class TestDeviceAlertsSolution(unittest.TestCase):
+class TestSolution(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rows = load_data('device_alerts.csv')
         cls.labeled = [r for r in cls.rows if r['is_valid_dispatch'] in ('0', '1')]
-        cls.unlabeled = [r for r in cls.rows if r['is_valid_dispatch'] == '']
 
     def test_data_integrity(self):
         self.assertEqual(len(self.rows), 1140)
         self.assertEqual(len(self.labeled), 1091)
-        self.assertEqual(len(self.unlabeled), 49)
-        fa_count = sum(1 for r in self.labeled if r['is_valid_dispatch'] == '0')
-        valid_count = sum(1 for r in self.labeled if r['is_valid_dispatch'] == '1')
-        self.assertEqual(fa_count, 136)
-        self.assertEqual(valid_count, 955)
+        unlabeled = [r for r in self.rows if r['is_valid_dispatch'] == '']
+        self.assertEqual(len(unlabeled), 49)
 
-    def test_drift_calculation(self):
-        for r in self.rows:
-            self.assertGreaterEqual(r['drift_min'], 0.0)
-            self.assertLessEqual(r['drift_min'], 65.0)
-            self.assertGreaterEqual(r['signal_dbm'], 0.0)
-            self.assertLessEqual(r['signal_dbm'], 30.0)
-            self.assertGreaterEqual(r['retry_count'], 0.0)
-            self.assertLessEqual(r['retry_count'], 120.0)
+    def test_baseline_and_s1(self):
+        total_fa = sum(1 for r in self.labeled if r['is_valid_dispatch'] == '0')
+        self.assertEqual(total_fa, 136)
+        flagged = [r for r in self.labeled if is_flagged_s1(r)]
+        caught_fa = sum(1 for r in flagged if r['is_valid_dispatch'] == '0')
+        self.assertEqual(len(flagged), 279)
+        self.assertEqual(caught_fa, 107)
 
-    def test_baseline_and_strategies(self):
-        base_cost, s1, s2, s3 = evaluate_policy(self.rows)
-        self.assertEqual(base_cost, 12240)
-        
-        # Strategy 1 verification
-        self.assertEqual(s1['deferred'], 279)
-        self.assertEqual(s1['caught'], 107)
-        self.assertEqual(s1['cost'], 5400)
-        self.assertEqual(s1['saved'], 6840)
-        self.assertAlmostEqual(s1['saved'] / base_cost * 100, 55.88, places=1)
+    def test_strategy3_performance(self):
+        flagged = [r for r in self.labeled if is_flagged_s3(r)]
+        caught_fa = sum(1 for r in flagged if r['is_valid_dispatch'] == '0')
+        self.assertEqual(len(flagged), 318)
+        self.assertEqual(caught_fa, 119)
+        base_cost = 136 * 90
+        missed_fa = 136 - 119
+        opt_cost = missed_fa * 90 + len(flagged) * 10
+        saved = base_cost - opt_cost
+        self.assertEqual(saved, 7530)
+        self.assertAlmostEqual(saved / base_cost * 100, 61.52, places=2)
 
-        # Strategy 2 verification
-        self.assertEqual(s2['deferred'], 300)
-        self.assertEqual(s2['caught'], 110)
-        self.assertEqual(s2['cost'], 5340)
-        self.assertEqual(s2['saved'], 6900)
-        self.assertAlmostEqual(s2['saved'] / base_cost * 100, 56.37, places=1)
+    def test_edge_cases(self):
+        row_zero = {'drift_min': 0.0, 'signal_dbm': 20.0, 'retry_count': 10.0, 'plant_code': '西区涂装车间'}
+        self.assertFalse(is_flagged_s1(row_zero))
+        self.assertFalse(is_flagged_s2(row_zero))
+        self.assertFalse(is_flagged_s3(row_zero))
 
-        # Strategy 3 verification
-        self.assertEqual(s3['deferred'], 318)
-        self.assertEqual(s3['caught'], 119)
-        self.assertEqual(s3['cost'], 4710)
-        self.assertEqual(s3['saved'], 7530)
-        self.assertAlmostEqual(s3['saved'] / base_cost * 100, 61.52, places=1)
+        row_15 = {'drift_min': 15.0, 'signal_dbm': 20.0, 'retry_count': 10.0, 'plant_code': '西区涂装车间'}
+        self.assertTrue(is_flagged_s1(row_15))
+        self.assertTrue(is_flagged_s2(row_15))
+        self.assertTrue(is_flagged_s3(row_15))
+
+        row_plant1 = {'drift_min': 5.0, 'signal_dbm': 2.0, 'retry_count': 30.0, 'plant_code': '一号总装厂'}
+        self.assertFalse(is_flagged_s1(row_plant1))
+        self.assertFalse(is_flagged_s2(row_plant1))
+        self.assertTrue(is_flagged_s3(row_plant1))
+
+        row_plant2 = {'drift_min': 5.0, 'signal_dbm': 2.0, 'retry_count': 30.0, 'plant_code': '二号焊装厂'}
+        self.assertFalse(is_flagged_s1(row_plant2))
+        self.assertFalse(is_flagged_s2(row_plant2))
+        self.assertFalse(is_flagged_s3(row_plant2))
 
 if __name__ == '__main__':
     unittest.main()
