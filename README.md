@@ -1,3 +1,5 @@
+# 项目仓库: https://github.com/LightsOutTech/iot-dispatch-alert-optimization
+
 # 工业物联网告警现场运维防空跑优化方案
 
 ## 1. 我的判断（看到了什么、根问题是什么）
